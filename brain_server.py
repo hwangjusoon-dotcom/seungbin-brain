@@ -60,20 +60,6 @@ def _verify_jwt(token: str) -> Dict[str, Any]:
         raise HTTPException(status_code=401, detail="Invalid token")
 
 def _embed(text: str) -> List[float]:
-    def _mask(s: str) -> str:
-    if not s:
-        return "EMPTY"
-    s = s.strip()
-    return f"len={len(s)} head={s[:10]} sha1={hashlib.sha1(s.encode()).hexdigest()[:10]}"
-    def _ensure_clients():
-    global supabase_admin, openai_client
-
-    print("DEBUG SUPABASE_URL:", _mask(SUPABASE_URL))
-    print("DEBUG SUPABASE_SERVICE_ROLE_KEY:", _mask(SUPABASE_SERVICE_ROLE_KEY))
-
-    if not (SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY and SUPABASE_JWT_SECRET and OPENAI_API_KEY):
-        raise HTTPException(status_code=500, detail="Server env vars not configured")
-    ...
     _ensure_clients()
     e = openai_client.embeddings.create(model=EMBEDDING_MODEL, input=text).data[0].embedding
     return e
