@@ -343,6 +343,18 @@ def api_add_record(request: Request, payload: Dict[str, Any]):
 @app.post("/api/ask")
 def api_ask(request: Request, payload: Dict[str, Any]):
     _ensure_clients()
+    import hashlib
+
+def _mask(s: str) -> str:
+    if not s:
+        return "EMPTY"
+    return f"len={len(s)} head={s[:8]} sha1={hashlib.sha1(s.encode()).hexdigest()[:8]}"
+
+def _ensure_clients():
+    global supabase_admin, openai_client
+    print("DEBUG SUPABASE_URL:", _mask(SUPABASE_URL))
+    print("DEBUG SUPABASE_SERVICE_ROLE_KEY:", _mask(SUPABASE_SERVICE_ROLE_KEY))
+    ...
     token = _bearer(request)
     jwt_payload = _verify_jwt(token)
     user_id = jwt_payload["sub"]
