@@ -130,7 +130,47 @@ WEB_APP_HTML = r"""<!doctype html>
 <script>
 let accessToken = null;
 let supabaseClient = null;
+let supabaseClient = null;
 
+async function getSupabase(){
+  if (supabaseClient) return supabaseClient;
+  const url = document.getElementById("sb_url").value.trim();
+  const anon = document.getElementById("sb_anon").value.trim();
+  if(!url||!anon) throw new Error("Set SUPABASE_URL and SUPABASE_ANON_KEY");
+  lsSet("SB_SUPABASE_URL", url); lsSet("SB_SUPABASE_ANON", anon);
+
+  const { createClient } = await import("https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm");
+  supabaseClient = createClient(url, anon, {
+    auth: { persistSession:true, autoRefreshToken:true, detectSessionInUrl:true, storage: window.localStorage }
+  });
+  return supabaseClient;
+}
+
+async function ensureToken(){
+  const supabase = await getSupabase();
+
+  // 1) hash 토큰(#access_token=...)이 남아있으면 세션으로 저장
+  if (typeof parseHashToken === "function") {
+    const ht = parseHashToken();
+    if (ht?.access_token && ht?.refresh_token) {
+      const { data } = await supabase.auth.setSession({
+        access_token: ht.access_token,
+        refresh_token: ht.refresh_token
+      });
+      accessToken = data?.session?.access_token || ht.access_token;
+      window.history.replaceState({}, document.title, window.location.pathname);
+      return true;
+    }
+  }
+
+  // 2) 저장된 세션 가져오기
+  const { data } = await supabase.auth.getSession();
+  if (data?.session?.access_token) {
+    accessToken = data.session.access_token;
+    return true;
+  }
+  return false;
+}
 function lsGet(k){ try{return localStorage.getItem(k)||""}catch(e){return ""} }
 function lsSet(k,v){ try{localStorage.setItem(k,v)}catch(e){} }
 
@@ -202,9 +242,9 @@ async function ensureToken(){
 }
 
 async function addRecord(){
-  if(!(await ensureToken())){
-    return alert("Sign in first");
-  }
+  if(!(await ensureToken())) return alert("Sign in first");
+  // 이하 기존 코드 그대로...
+}
 
   const category = document.getElementById("category").value;
   const title = document.getElementById("title").value.trim();
@@ -226,9 +266,9 @@ async function addRecord(){
 }
 
 async function ask(){
-  if(!(await ensureToken())){
-    return alert("Sign in first");
-  }
+  if(!(await ensureToken())) return alert("Sign in first");
+  // 이하 기존 코드 그대로...
+}
 
   ...
 }
