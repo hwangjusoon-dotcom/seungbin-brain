@@ -1,7 +1,7 @@
 
 import os
 import json
-import hashlib
+
 from typing import Optional, List, Any, Dict
 
 import jwt  # PyJWT
@@ -345,12 +345,9 @@ def api_add_record(request: Request, payload: Dict[str, Any]):
 @app.post("/api/ask")
 def api_ask(request: Request, payload: Dict[str, Any]):
     _ensure_clients()
-    import hashlib
 
-def _mask(s: str) -> str:
-    if not s:
-        return "EMPTY"
-    return f"len={len(s)} head={s[:8]} sha1={hashlib.sha1(s.encode()).hexdigest()[:8]}"
+
+
 
 def _ensure_clients():
     global supabase_admin, openai_client
