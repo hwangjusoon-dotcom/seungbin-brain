@@ -129,6 +129,7 @@ WEB_APP_HTML = r"""<!doctype html>
 
 <script>
 let accessToken = null;
+let supabaseClient = null;
 
 function lsGet(k){ try{return localStorage.getItem(k)||""}catch(e){return ""} }
 function lsSet(k,v){ try{localStorage.setItem(k,v)}catch(e){} }
@@ -137,12 +138,23 @@ document.getElementById("sb_url").value = lsGet("SB_SUPABASE_URL");
 document.getElementById("sb_anon").value = lsGet("SB_SUPABASE_ANON");
 
 async function loadSupabase(){
+  if (supabaseClient) return supabaseClient;
+
   const url = document.getElementById("sb_url").value.trim();
   const anon = document.getElementById("sb_anon").value.trim();
   if(!url||!anon) throw new Error("Set SUPABASE_URL and SUPABASE_ANON_KEY");
   lsSet("SB_SUPABASE_URL", url); lsSet("SB_SUPABASE_ANON", anon);
+
   const { createClient } = await import("https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm");
-  return createClient(url, anon);
+  supabaseClient = createClient(url, anon, {
+    auth: {
+      persistSession: true,
+      autoRefreshToken: true,
+      detectSessionInUrl: true,
+      storage: window.localStorage,
+    }
+  });
+  return supabaseClient;
 }
 
 async function sendOtp(){
@@ -374,7 +386,11 @@ function parseHashToken(){
 (async () => {
   try {
     const supabase = await loadSupabase();
-
+supabase.auth.onAuthStateChange((_event, session) => {
+  if (session?.access_token) {
+    accessToken = session.access_token;
+  }
+});
     // ✅ 1) hash에 access_token이 있으면 세션으로 저장
     const ht = parseHashToken();
     if (ht?.access_token && ht?.refresh_token) {
