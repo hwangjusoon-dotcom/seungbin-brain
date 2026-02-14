@@ -149,21 +149,28 @@ async function sendOtp(){
   const supabase = await loadSupabase();
   const email = document.getElementById("email").value.trim();
   if(!email) return alert("Email required");
-  const { error } = await supabase.auth.signInWithOtp({ email });
+
+  const { error } = await supabase.auth.signInWithOtp({
+    email,
+    options: { emailRedirectTo: window.location.origin } // ✅ 링크 클릭 후 Render로 돌아오게
+  });
+
   if(error) return alert(error.message);
-  alert("OTP sent to email");
+  alert("Magic link sent to email");
 }
 
 async function verifyOtp(){
   const supabase = await loadSupabase();
-  const email = document.getElementById("email").value.trim();
-  const token = document.getElementById("otp").value.trim();
-  const { data, error } = await supabase.auth.verifyOtp({ email, token, type: "email" });
+  const { data, error } = await supabase.auth.getSession();
   if(error) return alert(error.message);
+
+  if(!data.session){
+    alert("아직 로그인 세션이 없어요. 메일의 링크를 클릭하고, 이 페이지로 돌아온 다음 다시 눌러주세요.");
+    return;
+  }
   accessToken = data.session.access_token;
   alert("Signed in");
 }
-
 function apiBase(){
   return window.location.origin;
 }
@@ -328,3 +335,13 @@ def api_ask(request: Request, payload: Dict[str, Any]):
     }).execute()
 
     return {"answer": answer, "retrieved": len(retrieved)}
+
+(async () => {
+  try {
+    const supabase = await loadSupabase();
+    const { data } = await supabase.auth.getSession();
+    if (data?.session?.access_token) {
+      accessToken = data.session.access_token;
+    }
+  } catch(e) {}
+})();
