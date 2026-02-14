@@ -52,14 +52,7 @@ def _bearer(request: Request) -> str:
     return auth.split(" ", 1)[1].strip()
 
 
-def _verify_jwt(token: str) -> Dict[str, Any]:
-    try:
-        payload = jwt.decode(token, SUPABASE_JWT_SECRET, algorithms=["HS256"], options={"verify_aud": False})
-        if "sub" not in payload:
-            raise ValueError("No sub")
-        return payload
-    except Exception:
-        raise HTTPException(status_code=401, detail="Invalid token")
+
 
 
 def _embed(text: str) -> List[float]:
@@ -301,8 +294,12 @@ def api_add_record(
 ):
     _ensure_clients()
     token = _bearer(request)
-    jwt_payload = _verify_jwt(token)
-    user_id = jwt_payload["sub"]
+   # 토큰을 Supabase에 직접 검증 요청
+user = supabase_admin.auth.get_user(token)
+if not user or not user.user:
+    raise HTTPException(status_code=401, detail="Invalid token")
+
+user_id = user.user.id
 
     category = payload.get("category")
     content = (payload.get("content") or "").strip()
