@@ -1,11 +1,9 @@
-
 import os
 import json
-
 from typing import Optional, List, Any, Dict
 
 import jwt  # PyJWT
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import FastAPI, Request, HTTPException, Body
 from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -23,7 +21,6 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 
 app = FastAPI(title=APP_TITLE)
 
-# Allow your browser UI to call the API
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -35,20 +32,25 @@ app.add_middleware(
 supabase_admin: Optional[Client] = None
 openai_client: Optional[OpenAI] = None
 
+
 def _ensure_clients():
     global supabase_admin, openai_client
+
     if not (SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY and SUPABASE_JWT_SECRET and OPENAI_API_KEY):
         raise HTTPException(status_code=500, detail="Server env vars not configured")
+
     if supabase_admin is None:
         supabase_admin = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
     if openai_client is None:
         openai_client = OpenAI(api_key=OPENAI_API_KEY)
+
 
 def _bearer(request: Request) -> str:
     auth = request.headers.get("authorization") or request.headers.get("Authorization") or ""
     if not auth.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Missing Bearer token")
     return auth.split(" ", 1)[1].strip()
+
 
 def _verify_jwt(token: str) -> Dict[str, Any]:
     try:
@@ -59,10 +61,12 @@ def _verify_jwt(token: str) -> Dict[str, Any]:
     except Exception:
         raise HTTPException(status_code=401, detail="Invalid token")
 
+
 def _embed(text: str) -> List[float]:
     _ensure_clients()
     e = openai_client.embeddings.create(model=EMBEDDING_MODEL, input=text).data[0].embedding
     return e
+
 
 WEB_APP_HTML = r"""<!doctype html>
 <html lang="en">
@@ -85,18 +89,17 @@ WEB_APP_HTML = r"""<!doctype html>
 <h2>Seungbin Brain v1</h2>
 
 <div class="card">
-  <h3>1) Sign in (Supabase OTP)</h3>
+  <h3>1) Sign in (Magic Link)</h3>
   <div class="row">
     <input id="sb_url" placeholder="SUPABASE_URL" style="flex:1;min-width:280px;">
     <input id="sb_anon" placeholder="SUPABASE_ANON_KEY" style="flex:1;min-width:280px;">
   </div>
   <div class="row">
     <input id="email" placeholder="Email" style="flex:1;min-width:220px;">
-    <button onclick="sendOtp()">Send OTP</button>
-    <input id="otp" placeholder="OTP code" style="width:140px;">
-    <button onclick="verifyOtp()">Verify</button>
+    <button onclick="sendOtp()">Send Link</button>
+    <button onclick="verifyOtp()">Check Session</button>
   </div>
-  <div class="muted">Save URL/Anon in browser localStorage. Token stays in memory.</div>
+  <div class="muted">URL/Anon are saved in localStorage. Session is stored by Supabase in localStorage.</div>
 </div>
 
 <div class="card">
@@ -163,16 +166,14 @@ function parseHashToken(){
   const h = window.location.hash || "";
   if(!h.startsWith("#")) return null;
   const params = new URLSearchParams(h.slice(1));
-  return {
-    access_token: params.get("access_token"),
-    refresh_token: params.get("refresh_token"),
-  };
+  return { access_token: params.get("access_token"), refresh_token: params.get("refresh_token") };
 }
 
 (async () => {
   try {
     const supabase = await getSupabase();
 
+    // If magic link returns tokens in hash, store them as session.
     const ht = parseHashToken();
     if (ht?.access_token && ht?.refresh_token) {
       const { data } = await supabase.auth.setSession({
@@ -200,9 +201,8 @@ async function sendOtp(){
     email,
     options: { emailRedirectTo: window.location.origin }
   });
-
   if(error) return alert(error.message);
-  alert("Magic link sent to email");
+  alert("Magic link sent. Click the latest email.");
 }
 
 async function verifyOtp(){
@@ -243,9 +243,16 @@ async function addRecord(){
     headers:{ "Content-Type":"application/json", "Authorization":"Bearer "+accessToken },
     body: JSON.stringify({ category, title, content, tags })
   });
+
   const out = document.getElementById("add_out");
-  const j = await res.json();
-  if(!res.ok){ out.textContent = "Error: "+(j.detail||JSON.stringify(j)); return; }
+  const text = await res.text();
+  let j = null;
+  try { j = JSON.parse(text); } catch(e) {}
+
+  if(!res.ok){
+    out.textContent = "Error: " + (j?.detail || text);
+    return;
+  }
   out.textContent = "Saved record: "+j.record_id+" (chunks: "+j.chunks+")";
 }
 
@@ -263,11 +270,16 @@ async function ask(){
     headers:{ "Content-Type":"application/json", "Authorization":"Bearer "+accessToken },
     body: JSON.stringify({ question, top_k: 8 })
   });
-  const j = await res.json();
+
+  const text = await res.text();
+  let j = null;
+  try { j = JSON.parse(text); } catch(e) {}
+
   if(!res.ok){
-    document.getElementById("answer").textContent = "Error: "+(j.detail||JSON.stringify(j));
+    document.getElementById("answer").textContent = "Error: " + (j?.detail || text);
     return;
   }
+
   document.getElementById("answer").textContent = j.answer;
   document.getElementById("sources").textContent = "Retrieved chunks: "+j.retrieved;
 }
@@ -276,12 +288,17 @@ async function ask(){
 </html>
 """
 
+
 @app.get("/", response_class=HTMLResponse)
 def home():
     return HTMLResponse(WEB_APP_HTML)
 
+
 @app.post("/api/records")
-def api_add_record(request: Request, payload: Dict[str, Any]):
+def api_add_record(
+    request: Request,
+    payload: Dict[str, Any] = Body(...)
+):
     _ensure_clients()
     token = _bearer(request)
     jwt_payload = _verify_jwt(token)
@@ -295,7 +312,6 @@ def api_add_record(request: Request, payload: Dict[str, Any]):
     if not category or not content:
         raise HTTPException(status_code=400, detail="category and content required")
 
-    # Insert record
     rec = {
         "user_id": user_id,
         "category": category,
@@ -309,14 +325,13 @@ def api_add_record(request: Request, payload: Dict[str, Any]):
         raise HTTPException(status_code=500, detail="Failed to insert record")
     record_id = ins.data[0]["id"]
 
-    # Chunking (simple, robust): split by paragraphs then cap length
+    # chunking
     chunks: List[str] = []
     parts = [p.strip() for p in content.split("\n\n") if p.strip()]
     for p in parts:
         if len(p) <= 1200:
             chunks.append(p)
         else:
-            # split long paragraphs
             for i in range(0, len(p), 1000):
                 chunks.append(p[i:i+1000])
 
@@ -342,17 +357,13 @@ def api_add_record(request: Request, payload: Dict[str, Any]):
 
     return {"record_id": record_id, "chunks": len(rows)}
 
+
 @app.post("/api/ask")
-def api_ask(request: Request, payload: Dict[str, Any]):
+def api_ask(
+    request: Request,
+    payload: Dict[str, Any] = Body(...)
+):
     _ensure_clients()
-
-
-
-
-def _ensure_clients():
-    global supabase_admin, openai_client
-
-    ...
     token = _bearer(request)
     jwt_payload = _verify_jwt(token)
     user_id = jwt_payload["sub"]
@@ -362,7 +373,7 @@ def _ensure_clients():
         raise HTTPException(status_code=400, detail="question required")
 
     top_k = int(payload.get("top_k") or 8)
-    categories = payload.get("categories")  # optional list[str]
+    categories = payload.get("categories")
 
     q_emb = _embed(question)
 
@@ -382,14 +393,12 @@ def _ensure_clients():
         "If the context is insufficient, say what is missing and propose next steps."
     )
 
-    messages = [
-        {"role": "system", "content": system},
-        {"role": "user", "content": f"Retrieved context:\n{context}\n\nQuestion:\n{question}"}
-    ]
-
     resp = openai_client.chat.completions.create(
         model=CHAT_MODEL,
-        messages=messages,
+        messages=[
+            {"role": "system", "content": system},
+            {"role": "user", "content": f"Retrieved context:\n{context}\n\nQuestion:\n{question}"}
+        ],
     )
 
     answer = resp.choices[0].message.content
