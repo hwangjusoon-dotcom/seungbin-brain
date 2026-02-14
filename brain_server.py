@@ -339,9 +339,29 @@ def api_ask(request: Request, payload: Dict[str, Any]):
 (async () => {
   try {
     const supabase = await loadSupabase();
+
+    // 1) URL에 code가 있으면 세션 교환 (PKCE)
+    const url = new URL(window.location.href);
+    const code = url.searchParams.get("code");
+    if (code) {
+      const { data, error } = await supabase.auth.exchangeCodeForSession(window.location.href);
+      if (error) console.log("exchangeCodeForSession error:", error);
+      if (data?.session?.access_token) {
+        accessToken = data.session.access_token;
+
+        // URL 정리(선택): code 파라미터 제거
+        url.searchParams.delete("code");
+        window.history.replaceState({}, document.title, url.toString());
+        return;
+      }
+    }
+
+    // 2) 이미 저장된 세션이 있으면 가져오기
     const { data } = await supabase.auth.getSession();
     if (data?.session?.access_token) {
       accessToken = data.session.access_token;
     }
-  } catch(e) {}
+  } catch(e) {
+    console.log(e);
+  }
 })();
