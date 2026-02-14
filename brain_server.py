@@ -335,28 +335,37 @@ def api_ask(request: Request, payload: Dict[str, Any]):
     }).execute()
 
     return {"answer": answer, "retrieved": len(retrieved)}
-
+function parseHashToken(){
+  const h = window.location.hash || "";
+  if(!h.startsWith("#")) return null;
+  const params = new URLSearchParams(h.slice(1));
+  return {
+    access_token: params.get("access_token"),
+    refresh_token: params.get("refresh_token"),
+    expires_in: params.get("expires_in"),
+    token_type: params.get("token_type")
+  };
+}
 (async () => {
   try {
     const supabase = await loadSupabase();
 
-    // 1) URL에 code가 있으면 세션 교환 (PKCE)
-    const url = new URL(window.location.href);
-    const code = url.searchParams.get("code");
-    if (code) {
-      const { data, error } = await supabase.auth.exchangeCodeForSession(window.location.href);
-      if (error) console.log("exchangeCodeForSession error:", error);
-      if (data?.session?.access_token) {
-        accessToken = data.session.access_token;
+    // ✅ 1) hash에 access_token이 있으면 세션으로 저장
+    const ht = parseHashToken();
+    if (ht?.access_token && ht?.refresh_token) {
+      const { data, error } = await supabase.auth.setSession({
+        access_token: ht.access_token,
+        refresh_token: ht.refresh_token
+      });
+      if (error) console.log("setSession error:", error);
+      accessToken = (data?.session?.access_token) || ht.access_token;
 
-        // URL 정리(선택): code 파라미터 제거
-        url.searchParams.delete("code");
-        window.history.replaceState({}, document.title, url.toString());
-        return;
-      }
+      // 주소창 정리(선택): 토큰 숨기기
+      window.history.replaceState({}, document.title, window.location.pathname);
+      return;
     }
 
-    // 2) 이미 저장된 세션이 있으면 가져오기
+    // ✅ 2) 이미 저장된 세션이 있으면 가져오기
     const { data } = await supabase.auth.getSession();
     if (data?.session?.access_token) {
       accessToken = data.session.access_token;
