@@ -130,10 +130,16 @@ WEB_APP_HTML = r"""<!doctype html>
 <script>
 let accessToken = null;
 let supabaseClient = null;
-let supabaseClient = null;
+
+function lsGet(k){ try{return localStorage.getItem(k)||""}catch(e){return ""} }
+function lsSet(k,v){ try{localStorage.setItem(k,v)}catch(e){} }
+
+document.getElementById("sb_url").value = lsGet("SB_SUPABASE_URL");
+document.getElementById("sb_anon").value = lsGet("SB_SUPABASE_ANON");
 
 async function getSupabase(){
   if (supabaseClient) return supabaseClient;
+
   const url = document.getElementById("sb_url").value.trim();
   const anon = document.getElementById("sb_anon").value.trim();
   if(!url||!anon) throw new Error("Set SUPABASE_URL and SUPABASE_ANON_KEY");
@@ -143,14 +149,30 @@ async function getSupabase(){
   supabaseClient = createClient(url, anon, {
     auth: { persistSession:true, autoRefreshToken:true, detectSessionInUrl:true, storage: window.localStorage }
   });
+
+  // 로그인 이벤트 잡기
+  supabaseClient.auth.onAuthStateChange((_event, session) => {
+    if (session?.access_token) accessToken = session.access_token;
+  });
+
   return supabaseClient;
 }
 
-async function ensureToken(){
-  const supabase = await getSupabase();
+function parseHashToken(){
+  const h = window.location.hash || "";
+  if(!h.startsWith("#")) return null;
+  const params = new URLSearchParams(h.slice(1));
+  return {
+    access_token: params.get("access_token"),
+    refresh_token: params.get("refresh_token"),
+  };
+}
 
-  // 1) hash 토큰(#access_token=...)이 남아있으면 세션으로 저장
-  if (typeof parseHashToken === "function") {
+// 페이지 로드 시: 해시 토큰이 있으면 세션으로 저장, 아니면 기존 세션 로드
+(async () => {
+  try {
+    const supabase = await getSupabase();
+
     const ht = parseHashToken();
     if (ht?.access_token && ht?.refresh_token) {
       const { data } = await supabase.auth.setSession({
@@ -159,100 +181,63 @@ async function ensureToken(){
       });
       accessToken = data?.session?.access_token || ht.access_token;
       window.history.replaceState({}, document.title, window.location.pathname);
-      return true;
+      return;
     }
+
+    const { data } = await supabase.auth.getSession();
+    if (data?.session?.access_token) accessToken = data.session.access_token;
+  } catch(e) {
+    console.log(e);
   }
-
-  // 2) 저장된 세션 가져오기
-  const { data } = await supabase.auth.getSession();
-  if (data?.session?.access_token) {
-    accessToken = data.session.access_token;
-    return true;
-  }
-  return false;
-}
-function lsGet(k){ try{return localStorage.getItem(k)||""}catch(e){return ""} }
-function lsSet(k,v){ try{localStorage.setItem(k,v)}catch(e){} }
-
-document.getElementById("sb_url").value = lsGet("SB_SUPABASE_URL");
-document.getElementById("sb_anon").value = lsGet("SB_SUPABASE_ANON");
-
-async function loadSupabase(){
-  if (supabaseClient) return supabaseClient;
-
-  const url = document.getElementById("sb_url").value.trim();
-  const anon = document.getElementById("sb_anon").value.trim();
-  if(!url||!anon) throw new Error("Set SUPABASE_URL and SUPABASE_ANON_KEY");
-  lsSet("SB_SUPABASE_URL", url); lsSet("SB_SUPABASE_ANON", anon);
-
-  const { createClient } = await import("https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm");
-  supabaseClient = createClient(url, anon, {
-    auth: {
-      persistSession: true,
-      autoRefreshToken: true,
-      detectSessionInUrl: true,
-      storage: window.localStorage,
-    }
-  });
-  return supabaseClient;
-}
+})();
 
 async function sendOtp(){
-  const supabase = await loadSupabase();
+  const supabase = await getSupabase();
   const email = document.getElementById("email").value.trim();
   if(!email) return alert("Email required");
 
   const { error } = await supabase.auth.signInWithOtp({
     email,
-    options: { emailRedirectTo: window.location.origin } // ✅ 링크 클릭 후 Render로 돌아오게
+    options: { emailRedirectTo: window.location.origin }
   });
 
   if(error) return alert(error.message);
   alert("Magic link sent to email");
 }
 
+// (선택) 버튼으로 세션 재확인
 async function verifyOtp(){
-  const supabase = await loadSupabase();
-  const { data, error } = await supabase.auth.getSession();
-  if(error) return alert(error.message);
-
-  if(!data.session){
-    alert("아직 로그인 세션이 없어요. 메일의 링크를 클릭하고, 이 페이지로 돌아온 다음 다시 눌러주세요.");
-    return;
+  const supabase = await getSupabase();
+  const { data } = await supabase.auth.getSession();
+  if(data?.session?.access_token){
+    accessToken = data.session.access_token;
+    alert("Signed in");
+  } else {
+    alert("No session yet. Click the magic link again (latest email).");
   }
-  accessToken = data.session.access_token;
-  alert("Signed in");
 }
-function apiBase(){
-  return window.location.origin;
-}
+
+function apiBase(){ return window.location.origin; }
 
 async function ensureToken(){
   if(accessToken) return true;
-
-  const supabase = await loadSupabase();
+  const supabase = await getSupabase();
   const { data } = await supabase.auth.getSession();
-
   if(data?.session?.access_token){
     accessToken = data.session.access_token;
     return true;
   }
-
   return false;
 }
 
 async function addRecord(){
   if(!(await ensureToken())) return alert("Sign in first");
-  // 이하 기존 코드 그대로...
-}
 
   const category = document.getElementById("category").value;
   const title = document.getElementById("title").value.trim();
   const content = document.getElementById("content").value.trim();
   const tags = document.getElementById("tags").value.split(",").map(s=>s.trim()).filter(Boolean);
-
-  ...
-}
+  if(!content) return alert("Content required");
 
   const res = await fetch(apiBase()+"/api/records", {
     method:"POST",
@@ -267,16 +252,13 @@ async function addRecord(){
 
 async function ask(){
   if(!(await ensureToken())) return alert("Sign in first");
-  // 이하 기존 코드 그대로...
-}
 
-  ...
-}
-  if(!accessToken) return alert("Sign in first");
   const question = document.getElementById("question").value.trim();
   if(!question) return;
+
   document.getElementById("answer").textContent = "Thinking...";
   document.getElementById("sources").textContent = "";
+
   const res = await fetch(apiBase()+"/api/ask", {
     method:"POST",
     headers:{ "Content-Type":"application/json", "Authorization":"Bearer "+accessToken },
@@ -412,46 +394,3 @@ def api_ask(request: Request, payload: Dict[str, Any]):
     }).execute()
 
     return {"answer": answer, "retrieved": len(retrieved)}
-function parseHashToken(){
-  const h = window.location.hash || "";
-  if(!h.startsWith("#")) return null;
-  const params = new URLSearchParams(h.slice(1));
-  return {
-    access_token: params.get("access_token"),
-    refresh_token: params.get("refresh_token"),
-    expires_in: params.get("expires_in"),
-    token_type: params.get("token_type")
-  };
-}
-(async () => {
-  try {
-    const supabase = await loadSupabase();
-supabase.auth.onAuthStateChange((_event, session) => {
-  if (session?.access_token) {
-    accessToken = session.access_token;
-  }
-});
-    // ✅ 1) hash에 access_token이 있으면 세션으로 저장
-    const ht = parseHashToken();
-    if (ht?.access_token && ht?.refresh_token) {
-      const { data, error } = await supabase.auth.setSession({
-        access_token: ht.access_token,
-        refresh_token: ht.refresh_token
-      });
-      if (error) console.log("setSession error:", error);
-      accessToken = (data?.session?.access_token) || ht.access_token;
-
-      // 주소창 정리(선택): 토큰 숨기기
-      window.history.replaceState({}, document.title, window.location.pathname);
-      return;
-    }
-
-    // ✅ 2) 이미 저장된 세션이 있으면 가져오기
-    const { data } = await supabase.auth.getSession();
-    if (data?.session?.access_token) {
-      accessToken = data.session.access_token;
-    }
-  } catch(e) {
-    console.log(e);
-  }
-})();
