@@ -175,13 +175,32 @@ function apiBase(){
   return window.location.origin;
 }
 
+async function ensureToken(){
+  if(accessToken) return true;
+
+  const supabase = await loadSupabase();
+  const { data } = await supabase.auth.getSession();
+
+  if(data?.session?.access_token){
+    accessToken = data.session.access_token;
+    return true;
+  }
+
+  return false;
+}
+
 async function addRecord(){
-  if(!accessToken) return alert("Sign in first");
+  if(!(await ensureToken())){
+    return alert("Sign in first");
+  }
+
   const category = document.getElementById("category").value;
   const title = document.getElementById("title").value.trim();
   const content = document.getElementById("content").value.trim();
   const tags = document.getElementById("tags").value.split(",").map(s=>s.trim()).filter(Boolean);
-  if(!content) return alert("Content required");
+
+  ...
+}
 
   const res = await fetch(apiBase()+"/api/records", {
     method:"POST",
@@ -195,6 +214,12 @@ async function addRecord(){
 }
 
 async function ask(){
+  if(!(await ensureToken())){
+    return alert("Sign in first");
+  }
+
+  ...
+}
   if(!accessToken) return alert("Sign in first");
   const question = document.getElementById("question").value.trim();
   if(!question) return;
