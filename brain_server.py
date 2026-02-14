@@ -150,7 +150,6 @@ async function getSupabase(){
     auth: { persistSession:true, autoRefreshToken:true, detectSessionInUrl:true, storage: window.localStorage }
   });
 
-  // 로그인 이벤트 잡기
   supabaseClient.auth.onAuthStateChange((_event, session) => {
     if (session?.access_token) accessToken = session.access_token;
   });
@@ -168,7 +167,6 @@ function parseHashToken(){
   };
 }
 
-// 페이지 로드 시: 해시 토큰이 있으면 세션으로 저장, 아니면 기존 세션 로드
 (async () => {
   try {
     const supabase = await getSupabase();
@@ -205,7 +203,6 @@ async function sendOtp(){
   alert("Magic link sent to email");
 }
 
-// (선택) 버튼으로 세션 재확인
 async function verifyOtp(){
   const supabase = await getSupabase();
   const { data } = await supabase.auth.getSession();
@@ -213,7 +210,7 @@ async function verifyOtp(){
     accessToken = data.session.access_token;
     alert("Signed in");
   } else {
-    alert("No session yet. Click the magic link again (latest email).");
+    alert("No session yet. Click the latest magic link.");
   }
 }
 
