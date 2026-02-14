@@ -293,13 +293,15 @@ def api_add_record(
     payload: Dict[str, Any] = Body(...)
 ):
     _ensure_clients()
-    token = _bearer(request)
-   # 토큰을 Supabase에 직접 검증 요청
-user = supabase_admin.auth.get_user(token)
-if not user or not user.user:
-    raise HTTPException(status_code=401, detail="Invalid token")
 
-user_id = user.user.id
+    token = _bearer(request)
+
+    # Validate token via Supabase (no local JWT secret needed)
+    auth_res = supabase_admin.auth.get_user(jwt=token)
+    user_obj = getattr(auth_res, "user", None) or (auth_res.get("user") if isinstance(auth_res, dict) else None)
+    if not user_obj:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    user_id = getattr(user_obj, "id", None) or user_obj.get("id")
 
     category = payload.get("category")
     content = (payload.get("content") or "").strip()
@@ -322,7 +324,7 @@ user_id = user.user.id
         raise HTTPException(status_code=500, detail="Failed to insert record")
     record_id = ins.data[0]["id"]
 
-    # chunking
+    # Chunking
     chunks: List[str] = []
     parts = [p.strip() for p in content.split("\n\n") if p.strip()]
     for p in parts:
@@ -361,9 +363,14 @@ def api_ask(
     payload: Dict[str, Any] = Body(...)
 ):
     _ensure_clients()
+
     token = _bearer(request)
-    jwt_payload = _verify_jwt(token)
-    user_id = jwt_payload["sub"]
+
+    auth_res = supabase_admin.auth.get_user(jwt=token)
+    user_obj = getattr(auth_res, "user", None) or (auth_res.get("user") if isinstance(auth_res, dict) else None)
+    if not user_obj:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    user_id = getattr(user_obj, "id", None) or user_obj.get("id")
 
     question = (payload.get("question") or "").strip()
     if not question:
@@ -373,7 +380,6 @@ def api_ask(
     categories = payload.get("categories")
 
     q_emb = _embed(question)
-
     rpc = supabase_admin.rpc("match_chunks", {
         "in_query_embedding": q_emb,
         "in_user_id": user_id,
@@ -384,16 +390,10 @@ def api_ask(
     retrieved = rpc.data or []
     context = "\n\n".join([f"[{i+1}] {r['chunk_text']}" for i, r in enumerate(retrieved)])
 
-    system = (
-        "You are Seungbin's extended brain. "
-        "Use the retrieved context when relevant. "
-        "If the context is insufficient, say what is missing and propose next steps."
-    )
-
     resp = openai_client.chat.completions.create(
         model=CHAT_MODEL,
         messages=[
-            {"role": "system", "content": system},
+            {"role": "system", "content": "You are Seungbin's extended brain. Use context when relevant."},
             {"role": "user", "content": f"Retrieved context:\n{context}\n\nQuestion:\n{question}"}
         ],
     )
