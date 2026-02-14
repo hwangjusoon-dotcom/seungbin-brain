@@ -351,8 +351,7 @@ def api_ask(request: Request, payload: Dict[str, Any]):
 
 def _ensure_clients():
     global supabase_admin, openai_client
-    print("DEBUG SUPABASE_URL:", _mask(SUPABASE_URL))
-    print("DEBUG SUPABASE_SERVICE_ROLE_KEY:", _mask(SUPABASE_SERVICE_ROLE_KEY))
+
     ...
     token = _bearer(request)
     jwt_payload = _verify_jwt(token)
